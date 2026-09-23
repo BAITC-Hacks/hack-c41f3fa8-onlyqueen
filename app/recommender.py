@@ -303,6 +303,37 @@ class Recommender:
             f"{' | '.join(profile.languages)}, длительность {duration}"
         )
 
+    @staticmethod
+    def _composition_evidence(profile: Profile) -> str | None:
+        """Return a literal, cleaned composition fragment when the profile lists performers."""
+        description = " ".join(profile.description.split())
+        match = re.search(
+            r"((?:Расширенный состав(?: группы)?[^:]{0,80}|Большой музыкальный состав|"
+            r"Большой состав группы[^:]{0,80})\s*:\s*.*?)"
+            r"(?=\s+Большой состав группы|\s+Репертуар(?:\s|:)|[.!?](?:\s|$)|$)",
+            description,
+            re.I,
+        )
+        if not match:
+            return None
+        fragment = re.sub(r"[🎤🥁🎸🎺🎷🎵🎻🔉]+", ", ", match.group(1))
+        fragment = re.sub(r"\s*,\s*", ", ", fragment)
+        fragment = fragment.replace(":,", ":").replace(", ,", ",")
+        return re.sub(r"\s+", " ", fragment).strip(" ,")
+
+    @classmethod
+    def _profile_specific_evidence(cls, profile: Profile) -> str | None:
+        composition = cls._composition_evidence(profile)
+        if composition:
+            return composition
+        markers = re.compile(
+            r"\b(?:\d+\s*(?:лет|человек|гостей|заказ)|репертуар|оборудован|"
+            r"вместимост|язык|состав|клиент)\w*",
+            re.I,
+        )
+        candidates = [fragment for fragment in cls._fragments(profile.description) if markers.search(fragment)]
+        return candidates[0] if candidates else None
+
     @classmethod
     def _reason(
         cls, profile: Profile, req: dict[str, Any], reasons: list[dict[str, Any]],
@@ -319,7 +350,11 @@ class Recommender:
         if description_reason:
             second = f"Подтверждение из описания: «{description_reason['source_fragment']}»."
         else:
-            second = "Отличающие данные профиля: " + cls._structured_evidence(profile, req) + "."
+            specific = cls._profile_specific_evidence(profile)
+            if specific:
+                second = f"Конкретный факт из описания: «{specific}»."
+            else:
+                second = "Отличающие данные профиля: " + cls._structured_evidence(profile, req) + "."
         return first + " " + second
 
     def recommend(self, request: dict[str, Any]) -> dict[str, Any]:

@@ -54,8 +54,23 @@ class RecommenderChecks(unittest.TestCase):
         by_name = {card["name"]: card for card in first["recommendations"]}
         self.assertEqual(by_name["Куррапика"]["relevance_score"], 25)
         self.assertIn("деловых встреч", by_name["Куррапика"]["explanation"])
-        self.assertIn("languages: русский", by_name["Мицури Канроджи"]["explanation"])
-        self.assertIn("казахский | русский | английский", by_name["Кики"]["explanation"])
+        self.assertIn("мультимедийное оборудование", by_name["Мицури Канроджи"]["explanation"])
+        self.assertIn("казахском, русском и английском языках", by_name["Кики"]["explanation"])
+
+    def test_live_band_explanations_remain_distinct_without_contractor_names(self):
+        result = self.engine.recommend(self.request(
+            event_format="корпоратив", category="Лайв-бэнд", budget_kzt=10_000_000
+        ))
+        by_name = {card["name"]: card["explanation"] for card in result["recommendations"]}
+        self.assertIn("два вокалиста", by_name["Дзэнъицу Агацума"])
+        self.assertIn("тромбон", by_name["Дзэнъицу Агацума"])
+        self.assertIn("4 вокалиста", by_name["Рей Аянами"])
+        self.assertIn("струнный квартет", by_name["Рей Аянами"])
+        without_names = [
+            explanation.replace(name, "<имя>")
+            for name, explanation in by_name.items()
+        ]
+        self.assertEqual(len(without_names), len(set(without_names)))
 
     def test_relevance_beats_cheaper_eligible_contractor(self):
         result = self.engine.recommend(self.request(
