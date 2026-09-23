@@ -82,13 +82,19 @@ class RecommenderChecks(unittest.TestCase):
         ))
         by_name = {card["name"]: card["explanation"] for card in result["recommendations"]}
         self.assertEqual(list(by_name), ["Эдвард Ван Хог", "Рамь", "Поньо"])
-        self.assertIn("казахскую песню", by_name["Эдвард Ван Хог"])
+        self.assertTrue(all(card["relevance_score"] == 0 for card in result["recommendations"]))
+        self.assertIn("общее обещание о казахской песне", by_name["Эдвард Ван Хог"])
+        self.assertIn("нет проверяемых деталей программы", by_name["Эдвард Ван Хог"])
         self.assertIn("перед главой государства", by_name["Рамь"])
-        self.assertIn("Ансамбль Sailor Dala", by_name["Поньо"])
+        self.assertIn("названы проект Ичиго и Рукии и Sailor Dala", by_name["Поньо"])
+        self.assertIn("нет проверяемых деталей программы", by_name["Поньо"])
 
         normalized = []
         for name, explanation in by_name.items():
-            self.assertNotRegex(explanation.casefold(), r"№\s*1|украс\w*|топ[- ]?\d+|лучш\w*")
+            self.assertNotRegex(
+                explanation.casefold(),
+                r"№\s*1|украс\w*|прославля\w*|топ[- ]?\d+|лучш\w*",
+            )
             self.assertEqual(explanation.count("."), 2)
             without_name_or_price = explanation.replace(name, "<имя>")
             without_name_or_price = re.sub(

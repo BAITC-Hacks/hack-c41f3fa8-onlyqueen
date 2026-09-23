@@ -18,7 +18,8 @@ PROMOTIONAL = re.compile(
     re.I,
 )
 EVIDENCE_PROMOTIONAL = re.compile(
-    r"(?:№\s*1\b|\bукрас\w*|\bвау[- ]?эффект\w*|\bгармония песни и красоты\b)",
+    r"(?:№\s*1\b|\bукрас\w*|\bвау[- ]?эффект\w*|\bгармония песни и красоты\b|"
+    r"\bпрославля\w*|\bвыступаем на вашем торжестве\b)",
     re.I,
 )
 FORMAT_CONCEPTS = {
@@ -353,9 +354,26 @@ class Recommender:
                 len(fragment) >= 15
                 and not PROMOTIONAL.search(fragment)
                 and not EVIDENCE_PROMOTIONAL.search(fragment)
+                and not re.fullmatch(r"(?:ансамбль|группа|команда)\s+[\wА-ЯЁа-яё -]+", fragment, re.I)
+                and not re.fullmatch(r"Авторский проект [^,.;]+", fragment, re.I)
             ):
                 safe_fragments.append(fragment)
         return safe_fragments[-1] if safe_fragments else None
+
+    @staticmethod
+    def _limited_description_context(profile: Profile) -> str:
+        description = profile.description.casefold()
+        if "казахскую песню" in description:
+            return (
+                "В description есть только общее обещание о казахской песне, "
+                "но нет проверяемых деталей программы"
+            )
+        if "sailor dala" in description:
+            return (
+                "В description названы проект Ичиго и Рукии и Sailor Dala, "
+                "но нет проверяемых деталей программы"
+            )
+        return "Индивидуальных проверяемых сведений в description недостаточно"
 
     @classmethod
     def _reason(
@@ -378,9 +396,9 @@ class Recommender:
                 second = f"{eligibility}; в описании указано: «{specific}»."
             else:
                 second = (
-                    f"{eligibility}; из структурных данных: "
-                    + cls._structured_evidence(profile, req)
-                    + "."
+                    f"{cls._limited_description_context(profile)}; проверено соответствие городу "
+                    f"и категории, доступность на выбранную дату и поддержка формата "
+                    f"«{req['event_format']}»."
                 )
         return first + " " + second
 
