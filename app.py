@@ -5,11 +5,13 @@ import os
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from app.ai_analysis import AIAnalyzer
 from app.recommender import Recommender
 
 
 ROOT = Path(__file__).resolve().parent
 ENGINE = Recommender(ROOT / "data" / "profiles.csv")
+AI = AIAnalyzer.from_env()
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -39,6 +41,7 @@ class Handler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length) or b"{}")
             compare_date = payload.pop("compare_date", "")
             result = ENGINE.compare(payload, compare_date) if compare_date else {"primary": ENGINE.recommend(payload)}
+            result["ai_analysis"] = AI.analyze(result["primary"], ENGINE.profiles)
             return self._json(result)
         except (ValueError, json.JSONDecodeError) as exc:
             return self._json({"error": str(exc)}, 400)

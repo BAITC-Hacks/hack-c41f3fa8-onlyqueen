@@ -176,6 +176,55 @@ function renderSet(item, heading) {
   return section;
 }
 
+function renderAI(analysis) {
+  const section = document.createElement('section');
+  section.className = `ai-analysis ${analysis.available ? 'available' : 'unavailable'}`;
+  const badge = analysis.available ? 'Проверено' : 'Недоступен';
+  section.innerHTML = `<div class="ai-heading"><div><p class="eyebrow">Без влияния на фильтры и порядок</p><h2>AI-анализ</h2></div><span class="ai-badge">${badge}</span></div>`;
+  if (!analysis.available) {
+    const message = document.createElement('p');
+    message.textContent = analysis.message;
+    section.appendChild(message);
+    return section;
+  }
+  const summary = document.createElement('p');
+  summary.className = 'ai-summary';
+  summary.textContent = analysis.summary;
+  section.appendChild(summary);
+  if (analysis.card_notes.length) {
+    const list = document.createElement('div');
+    list.className = 'ai-notes';
+    analysis.card_notes.forEach(note => {
+      const item = document.createElement('article');
+      const name = document.createElement('strong');
+      const text = document.createElement('p');
+      name.textContent = note.name;
+      text.textContent = note.text;
+      item.append(name, text);
+      list.appendChild(item);
+    });
+    section.appendChild(list);
+  } else {
+    const note = document.createElement('p');
+    note.textContent = analysis.empty_note;
+    section.appendChild(note);
+    if (analysis.suggestions.length) {
+      const list = document.createElement('ul');
+      analysis.suggestions.forEach(suggestion => {
+        const item = document.createElement('li');
+        item.textContent = suggestion;
+        list.appendChild(item);
+      });
+      section.appendChild(list);
+    }
+  }
+  const model = document.createElement('p');
+  model.className = 'ai-model';
+  model.textContent = `OpenAI · ${analysis.model}`;
+  section.appendChild(model);
+  return section;
+}
+
 form.addEventListener('submit', async event => {
   event.preventDefault();
   errorBox.hidden = true;
@@ -194,6 +243,7 @@ form.addEventListener('submit', async event => {
       results.appendChild(change);
       results.appendChild(renderSet(data.comparison, `Сравнение на ${prettyDate(data.comparison.request.event_date)}`));
     }
+    results.appendChild(renderAI(data.ai_analysis));
   } catch (error) {
     results.innerHTML = ''; errorBox.textContent = error.message; errorBox.hidden = false;
   }
