@@ -114,11 +114,11 @@ function renderCard(rec) {
   card.querySelector('.category').textContent = rec.matching_category;
   card.querySelector('.city').textContent = rec.city;
   card.querySelector('.card-price').textContent = `от ${money(rec.price_from_kzt)} ₸`;
-  card.querySelector('.score').textContent = `${rec.relevance_score} из 100`;
+  card.querySelector('.score').textContent = `Дополнительные совпадения: ${rec.relevance_score} из 100`;
   card.querySelector('.explanation').textContent = rec.explanation;
   const detailHost = card.querySelector('.score-details');
   const detail = document.createElement('details');
-  detail.innerHTML = `<summary>Как рассчитаны ${rec.relevance_score} из 100?</summary><div class="breakdown"></div>`;
+  detail.innerHTML = `<summary>Дополнительные совпадения: ${rec.relevance_score} из 100 — показать расчёт</summary><div class="breakdown"></div>`;
   const breakdown = detail.querySelector('.breakdown');
   rec.score_breakdown.forEach(component => {
     const row = document.createElement('div');
@@ -133,7 +133,7 @@ function renderCard(rec) {
   });
   const note = document.createElement('p');
   note.className = 'score-note';
-  note.textContent = 'Это оценка релевантности, а не вероятность. Цена и ID используются только при равенстве баллов.';
+  note.textContent = 'Это не вероятность и не оценка выполнения обязательных условий: они уже проверены отдельно. Баллы показывают только дополнительные совпадения; цена и ID используются при равенстве.';
   breakdown.appendChild(note);
   detailHost.appendChild(detail);
   const badges = card.querySelector('.badges');

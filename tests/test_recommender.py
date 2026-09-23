@@ -1,6 +1,7 @@
 import unittest
 import re
 import time
+from pathlib import Path
 
 from app.recommender import Recommender
 
@@ -220,6 +221,21 @@ class RecommenderChecks(unittest.TestCase):
         self.assertEqual(result["eligible_count"], 1)
         self.assertIn("Найдено рекомендаций: 1", result["summary"])
         self.assertIn("Меньше трёх", result["summary"])
+
+    def test_eligible_rare_candidate_can_have_zero_additional_matches(self):
+        result = self.engine.recommend(self.request(
+            city="Астана", category="Фото и видеобудки", event_format="свадьба"
+        ))
+        self.assertEqual(result["outcome"], "found")
+        self.assertEqual(result["eligible_count"], 1)
+        self.assertEqual(result["recommendations"][0]["relevance_score"], 0)
+
+    def test_zero_score_ui_distinguishes_eligibility_from_additional_matches(self):
+        html = Path("static/index.html").read_text(encoding="utf-8")
+        script = Path("static/app.js").read_text(encoding="utf-8")
+        self.assertIn("Соответствует обязательным условиям", html)
+        self.assertIn("Дополнительные совпадения:", script)
+        self.assertIn("не вероятность и не оценка выполнения обязательных условий", script)
 
     def test_empty_because_busy(self):
         result = self.engine.recommend(self.request(
