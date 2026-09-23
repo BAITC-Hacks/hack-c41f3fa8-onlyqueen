@@ -75,6 +75,48 @@ class RecommenderChecks(unittest.TestCase):
         ]
         self.assertEqual(len(without_names), len(set(without_names)))
 
+    def test_national_ensemble_uses_distinct_safe_description_fragments(self):
+        result = self.engine.recommend(self.request(
+            event_date="2026-12-26", event_format="свадьба",
+            category="Национальный ансамбль", budget_kzt=10_000_000,
+        ))
+        by_name = {card["name"]: card["explanation"] for card in result["recommendations"]}
+        self.assertEqual(list(by_name), ["Эдвард Ван Хог", "Рамь", "Поньо"])
+        self.assertIn("казахскую песню", by_name["Эдвард Ван Хог"])
+        self.assertIn("перед главой государства", by_name["Рамь"])
+        self.assertIn("Ансамбль Sailor Dala", by_name["Поньо"])
+
+        normalized = []
+        for name, explanation in by_name.items():
+            self.assertNotRegex(explanation.casefold(), r"№\s*1|украс\w*|топ[- ]?\d+|лучш\w*")
+            self.assertEqual(explanation.count("."), 2)
+            without_name_or_price = explanation.replace(name, "<имя>")
+            without_name_or_price = re.sub(
+                r"Начальная цена от [\d ]+ ₸ не превышает бюджет; итоговую стоимость нужно уточнить\. ",
+                "",
+                without_name_or_price,
+            )
+            normalized.append(without_name_or_price)
+        self.assertEqual(len(normalized), len(set(normalized)))
+
+    def test_related_show_categories_keep_explanations_distinct(self):
+        for category in ("Танцевальный коллектив", "Шоу-программа"):
+            with self.subTest(category=category):
+                result = self.engine.recommend(self.request(
+                    event_date="2026-12-26", event_format="свадьба",
+                    category=category, budget_kzt=10_000_000,
+                ))
+                normalized = []
+                for card in result["recommendations"]:
+                    explanation = card["explanation"].replace(card["name"], "<имя>")
+                    explanation = re.sub(
+                        r"Начальная цена от [\d ]+ ₸ не превышает бюджет; итоговую стоимость нужно уточнить\. ",
+                        "",
+                        explanation,
+                    )
+                    normalized.append(explanation)
+                self.assertEqual(len(normalized), len(set(normalized)))
+
     def test_relevance_beats_cheaper_eligible_contractor(self):
         result = self.engine.recommend(self.request(
             event_date="2026-11-15", wishes="ведущий для делового форума"

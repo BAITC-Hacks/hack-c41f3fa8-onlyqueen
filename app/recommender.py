@@ -17,6 +17,10 @@ PROMOTIONAL = re.compile(
     r"\b(?:лучш\w*|топ[- ]?\d+|идеальн\w*|безупречн\w*|профессионал\w*|премиальн\w*)\b",
     re.I,
 )
+EVIDENCE_PROMOTIONAL = re.compile(
+    r"(?:№\s*1\b|\bукрас\w*|\bвау[- ]?эффект\w*|\bгармония песни и красоты\b)",
+    re.I,
+)
 FORMAT_CONCEPTS = {
     "свадьба": {"свадьба"},
     "корпоратив": {"корпоратив"},
@@ -332,7 +336,26 @@ class Recommender:
             re.I,
         )
         candidates = [fragment for fragment in cls._fragments(profile.description) if markers.search(fragment)]
-        return candidates[0] if candidates else None
+        if candidates:
+            return candidates[0]
+
+        description = " ".join(profile.description.split())
+        short_fragments = re.split(
+            r"(?<=[.!?])\s+|\s*•\s*|"
+            r"\s+(?=(?:Авторский проект|Прославляем|Гармония песни|Ансамбль\s+[A-ZА-ЯЁ]))",
+            description,
+        )
+        safe_fragments = []
+        for fragment in short_fragments:
+            fragment = re.split(r",\s*котор\w+\s+украс\w*", fragment, maxsplit=1, flags=re.I)[0]
+            fragment = fragment.strip(" -–—:;,.!")
+            if (
+                len(fragment) >= 15
+                and not PROMOTIONAL.search(fragment)
+                and not EVIDENCE_PROMOTIONAL.search(fragment)
+            ):
+                safe_fragments.append(fragment)
+        return safe_fragments[-1] if safe_fragments else None
 
     @classmethod
     def _reason(
@@ -343,23 +366,19 @@ class Recommender:
             f"Начальная цена от {price} ₸ не превышает бюджет; "
             "итоговую стоимость нужно уточнить."
         )
-        eligibility = (
-            f"Профиль «{profile.anon_name}» свободен {req['event_date']}, работает в городе "
-            f"{profile.city} и принимает формат «{req['event_format']}» по категории "
-            f"«{req['category']}»"
-        )
+        eligibility = f"Профиль «{profile.anon_name}» свободен на выбранную дату"
         description_reason = next(
             (reason for reason in reasons if reason["kind"].endswith("description")), None
         )
         if description_reason:
-            second = f"{eligibility}; подтверждение из описания: «{description_reason['source_fragment']}»."
+            second = f"{eligibility}; в описании указано: «{description_reason['source_fragment']}»."
         else:
             specific = cls._profile_specific_evidence(profile)
             if specific:
-                second = f"{eligibility}; конкретный факт из описания: «{specific}»."
+                second = f"{eligibility}; в описании указано: «{specific}»."
             else:
                 second = (
-                    f"{eligibility}; отличающие данные профиля: "
+                    f"{eligibility}; из структурных данных: "
                     + cls._structured_evidence(profile, req)
                     + "."
                 )
