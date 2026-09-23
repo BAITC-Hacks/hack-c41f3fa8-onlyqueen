@@ -59,6 +59,19 @@ function addActionControls(container, item) {
   if (!guidance || item.outcome === 'found') return;
   const actions = document.createElement('div');
   actions.className = 'actions';
+  (guidance.suggested_cities || []).forEach(suggestion => {
+    const cityButton = document.createElement('button');
+    cityButton.type = 'button';
+    cityButton.className = 'secondary';
+    cityButton.textContent = `Искать в городе ${suggestion.city} · ${suggestion.profile_count}`;
+    cityButton.addEventListener('click', () => {
+      form.elements.city.value = suggestion.city;
+      renderCategories(suggestion.city);
+      form.elements.category.value = item.request.category;
+      form.requestSubmit();
+    });
+    actions.appendChild(cityButton);
+  });
   if (guidance.lowest_price_kzt !== null) {
     const info = document.createElement('p');
     info.innerHTML = `Минимальная цена в этой категории и городе — <strong>от ${money(guidance.lowest_price_kzt)} ₸</strong>.`;

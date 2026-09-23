@@ -48,7 +48,9 @@ class RecommenderChecks(unittest.TestCase):
             self.assertNotRegex(card["explanation"].casefold(), r"топ[- ]?10|лучший")
             without_identity_or_price = card["explanation"].replace(card["name"], "<имя>")
             without_identity_or_price = re.sub(
-                r"цена от [\d ]+ ₸ укладывается в бюджет", "цена подходит", without_identity_or_price
+                r"Начальная цена от [\d ]+ ₸ не превышает бюджет; итоговую стоимость нужно уточнить",
+                "цена подходит",
+                without_identity_or_price,
             )
             normalized.append(without_identity_or_price)
         self.assertEqual(len(normalized), len(set(normalized)))
@@ -124,6 +126,19 @@ class RecommenderChecks(unittest.TestCase):
             self.assertLessEqual(profile.price_from_kzt, suggested_budget)
             self.assertNotIn(req["event_date"], profile.busy_dates)
             self.assertIn(req["event_format"], profile.event_formats)
+
+    def test_budget_guidance_explains_why_button_exceeds_category_minimum(self):
+        result = self.engine.recommend(self.request(
+            category="Банкетный зал", event_format="конференция", budget_kzt=1_000
+        ))
+        guidance = result["guidance"]
+        self.assertEqual(guidance["lowest_price_kzt"], 2_000_000)
+        self.assertEqual(guidance["suggested_budget_kzt"], 3_500_000)
+        self.assertIn("Самая низкая начальная цена в категории — от 2 000 000 ₸", guidance["plain_reason"])
+        self.assertIn(
+            "Бюджет 3 500 000 ₸ — это минимальная начальная цена профиля, который свободен",
+            guidance["plain_reason"],
+        )
 
     def test_date_suggestions_rerun_all_hard_filters(self):
         req = self.request(
@@ -246,8 +261,27 @@ class RecommenderChecks(unittest.TestCase):
         self.assertEqual(result["rejections"]["busy"], 3)
 
     def test_no_city_category_is_distinct(self):
-        result = self.engine.recommend(self.request(city="Астана", category="Ресторан"))
+        request = self.request(city="Астана", category="Ресторан")
+        result = self.engine.recommend(request)
         self.assertEqual(result["outcome"], "no_city_category")
+        suggestion = result["guidance"]["suggested_cities"][0]
+        self.assertEqual(suggestion, {"city": "Алматы", "profile_count": 7})
+
+        retried = self.engine.recommend({**request, "city": suggestion["city"]})
+        self.assertEqual(retried["request"]["city"], "Алматы")
+        self.assertGreater(retried["eligible_count"], 0)
+        self.assertTrue(all(card["city"] == "Алматы" for card in retried["recommendations"]))
+
+    def test_price_explanation_treats_price_from_as_a_starting_price(self):
+        result = self.engine.recommend(self.request())
+        self.assertTrue(result["recommendations"])
+        for card in result["recommendations"]:
+            self.assertIn(
+                f"Начальная цена от {card['price_from_kzt']:,} ₸".replace(",", " "),
+                card["explanation"],
+            )
+            self.assertIn("итоговую стоимость нужно уточнить", card["explanation"])
+            self.assertNotIn("цена укладывается в бюджет", card["explanation"])
 
     def test_empty_max_hours_does_not_restrict_duration(self):
         candidate = next(p for p in self.engine.profiles if p.max_hours is None)

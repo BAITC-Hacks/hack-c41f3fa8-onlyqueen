@@ -340,21 +340,29 @@ class Recommender:
     ) -> str:
         price = f"{profile.price_from_kzt:,}".replace(",", " ")
         first = (
+            f"Начальная цена от {price} ₸ не превышает бюджет; "
+            "итоговую стоимость нужно уточнить."
+        )
+        eligibility = (
             f"Профиль «{profile.anon_name}» свободен {req['event_date']}, работает в городе "
             f"{profile.city} и принимает формат «{req['event_format']}» по категории "
-            f"«{req['category']}»; цена от {price} ₸ укладывается в бюджет."
+            f"«{req['category']}»"
         )
         description_reason = next(
             (reason for reason in reasons if reason["kind"].endswith("description")), None
         )
         if description_reason:
-            second = f"Подтверждение из описания: «{description_reason['source_fragment']}»."
+            second = f"{eligibility}; подтверждение из описания: «{description_reason['source_fragment']}»."
         else:
             specific = cls._profile_specific_evidence(profile)
             if specific:
-                second = f"Конкретный факт из описания: «{specific}»."
+                second = f"{eligibility}; конкретный факт из описания: «{specific}»."
             else:
-                second = "Отличающие данные профиля: " + cls._structured_evidence(profile, req) + "."
+                second = (
+                    f"{eligibility}; отличающие данные профиля: "
+                    + cls._structured_evidence(profile, req)
+                    + "."
+                )
         return first + " " + second
 
     def recommend(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -426,15 +434,28 @@ class Recommender:
         self, req: dict[str, Any], base: list[Profile], eligible: list[Profile], failures: dict[str, int],
     ) -> dict[str, Any]:
         if not base:
+            suggested_cities = [
+                {"city": city, "profile_count": count}
+                for city, count in sorted(
+                    (
+                        (city, sum(p.city == city and req["category"] in p.categories for p in self.profiles))
+                        for city in {p.city for p in self.profiles}
+                        if city != req["city"]
+                    ),
+                    key=lambda item: (-item[1], item[0]),
+                )
+                if count
+            ]
             return {
                 "plain_reason": (
                     f"В городе {req['city']} пока нет профилей категории «{req['category']}». "
-                    "Категория остаётся доступной для выбора в других городах."
+                    "Можно изменить город и выполнить новый поиск с теми же условиями."
                 ),
                 "lowest_price_kzt": None,
                 "suggested_budget_kzt": None,
                 "suggested_dates": [],
                 "removable_constraints": [],
+                "suggested_cities": suggested_cities,
             }
         lowest_price = min(p.price_from_kzt for p in base)
         budget_candidates = [
@@ -450,7 +471,7 @@ class Recommender:
         elif failures["budget"] == len(base):
             plain_reason = (
                 f"Ни один из {len(base)} профилей этой категории не укладывается в указанный бюджет. "
-                f"Самая низкая цена начинается от {lowest_price:,} ₸."
+                f"Самая низкая начальная цена в категории — от {lowest_price:,} ₸."
             ).replace(",", " ")
         elif failures["busy"] == len(base):
             plain_reason = f"Ни один из {len(base)} профилей этой категории не свободен в выбранную дату."
@@ -467,12 +488,19 @@ class Recommender:
                 f"Главное ограничение — {labels[dominant]}: по этой причине не проходят "
                 f"{failures[dominant]} из {len(base)} профилей. Причины могут пересекаться."
             )
+        if suggested_budget is not None and suggested_budget != lowest_price and not eligible:
+            formatted_budget = f"{suggested_budget:,}".replace(",", " ")
+            plain_reason += (
+                f" Бюджет {formatted_budget} ₸ — это минимальная начальная цена профиля, "
+                "который свободен в выбранную дату и проходит остальные условия."
+            )
         return {
             "plain_reason": plain_reason,
             "lowest_price_kzt": lowest_price,
             "suggested_budget_kzt": suggested_budget,
             "suggested_dates": self._suggest_dates(req, base) if not eligible else [],
             "removable_constraints": self._removable_constraints(req, base) if not eligible else [],
+            "suggested_cities": [],
         }
 
     @staticmethod
