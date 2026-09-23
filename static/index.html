@@ -1,43 +1,38 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Точный подрядчик — рекомендации для событий</title>
-  <link rel="stylesheet" href="/styles.css">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Точный подрядчик — рекомендации для событий</title><link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header>
-    <p class="eyebrow">Кейс 79-lite · 66 профилей</p>
-    <h1>Точный подрядчик</h1>
-    <p class="lead">Жёсткие фильтры по календарю и условиям. Каждая рекомендация объясняется фактами из набора данных.</p>
+  <header class="site-header">
+    <div class="brand"><span class="brand-mark">Т</span><div><strong>Точный подрядчик</strong><small>Подбор по условиям и календарю</small></div></div>
+    <span class="dataset-note">66 проверяемых профилей</span>
   </header>
   <main>
-    <form id="search-form">
-      <div class="fields">
+    <section class="intro"><p class="eyebrow">Кейс 79-lite</p><h1>Найдите подходящего подрядчика</h1><p>Укажите основные условия — мы сначала проверим доступность и бюджет, затем объясним порядок рекомендаций.</p></section>
+    <form id="search-form" class="search-panel">
+      <div class="required-fields">
         <label>Город<select name="city" required></select></label>
         <label>Дата события<input name="event_date" type="date" required></label>
         <label>Формат<select name="event_format" required></select></label>
         <label>Категория<select name="category" required></select></label>
-        <label>Бюджет, ₸<input name="budget_kzt" type="number" min="0" step="1000" value="1000000" required></label>
-        <label>Длительность, ч <span>необязательно</span><input name="duration_hours" type="number" min="0.5" step="0.5"></label>
-        <label>Язык <span>необязательно</span><select name="language"><option value="">Любой</option></select></label>
-        <label>Сравнить с датой <span>необязательно</span><input name="compare_date" type="date"></label>
-        <label class="wishes">Пожелания <span>необязательно, до 300 символов</span><textarea name="wishes" maxlength="300" rows="2" placeholder="Например: ведущий для делового форума"></textarea></label>
+        <fieldset class="budget-field"><legend>Бюджет, ₸</legend><div class="budget-row"><input name="budget_kzt" type="number" min="0" step="1000" value="1000000" required><div class="presets" aria-label="Быстрый выбор бюджета"><button type="button" data-budget="300000">300 тыс.</button><button type="button" data-budget="500000">500 тыс.</button><button type="button" data-budget="1000000">1 млн</button><button type="button" data-budget="3000000">3 млн</button></div></div></fieldset>
       </div>
-      <p id="range-note" class="note"></p>
-      <button type="submit">Показать рекомендации</button>
+      <details class="extras">
+        <summary>Дополнительные пожелания <span>язык, длительность, текст и сравнение дат</span></summary>
+        <div class="extra-fields">
+          <label>Язык<select name="language"><option value="">Любой</option></select></label>
+          <label>Длительность, ч<input name="duration_hours" type="number" min="0.5" step="0.5" placeholder="Например, 4"></label>
+          <label>Сравнить с датой<input name="compare_date" type="date"></label>
+          <label class="wishes">Пожелания<textarea name="wishes" maxlength="300" rows="2" placeholder="Например: репортажная съёмка"></textarea></label>
+        </div>
+      </details>
+      <div class="form-footer"><p id="range-note" class="note"></p><button class="primary" type="submit">Найти подрядчиков</button></div>
     </form>
-    <section id="error" class="error" hidden></section>
-    <section id="results" aria-live="polite"></section>
+    <section id="error" class="error" hidden></section><section id="results" aria-live="polite"></section>
   </main>
-  <template id="card-template">
-    <article class="card">
-      <div class="card-top"><div><p class="category"></p><h3></h3></div><div class="badges"></div></div>
-      <dl><div><dt>Город</dt><dd class="city"></dd></div><div><dt>Стоимость</dt><dd class="price"></dd></div><div><dt>Релевантность</dt><dd class="score"></dd></div></dl>
-      <p class="explanation"></p>
-    </article>
-  </template>
+  <template id="card-template"><article class="card"><div class="card-top"><div><p class="category"></p><h3></h3></div><div class="badges"></div></div><p class="card-price"></p><div class="card-meta"><span class="city"></span><span class="score"></span></div><p class="explanation"></p><div class="evidence-list"></div></article></template>
   <script src="/app.js"></script>
 </body>
 </html>

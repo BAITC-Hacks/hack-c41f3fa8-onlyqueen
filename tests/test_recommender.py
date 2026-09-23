@@ -76,6 +76,43 @@ class RecommenderChecks(unittest.TestCase):
         bulma = next(p for p in self.engine.profiles if p.anon_name == "Буллма")
         self.assertIn("2026-09-23", bulma.busy_dates)
 
+    def test_budget_suggestion_reruns_all_hard_filters(self):
+        req = self.request(
+            category="Ресторан", event_format="свадьба", budget_kzt=1_000
+        )
+        empty = self.engine.recommend(req)
+        self.assertEqual(empty["outcome"], "none_eligible")
+        self.assertEqual(empty["rejections"]["budget"], empty["base_count"])
+        suggested_budget = empty["guidance"]["lowest_price_kzt"]
+        self.assertEqual(suggested_budget, 2_000_000)
+
+        retried = self.engine.recommend({**req, "budget_kzt": suggested_budget})
+        profiles = {p.id: p for p in self.engine.profiles}
+        self.assertGreater(retried["eligible_count"], 0)
+        for card in retried["recommendations"]:
+            profile = profiles[card["id"]]
+            self.assertLessEqual(profile.price_from_kzt, suggested_budget)
+            self.assertNotIn(req["event_date"], profile.busy_dates)
+            self.assertIn(req["event_format"], profile.event_formats)
+
+    def test_date_suggestions_rerun_all_hard_filters(self):
+        req = self.request(
+            category="Инструменталист", event_format="свадьба",
+            event_date="2026-11-15", budget_kzt=10_000_000,
+        )
+        empty = self.engine.recommend(req)
+        self.assertEqual(empty["outcome"], "none_eligible")
+        self.assertTrue(empty["guidance"]["suggested_dates"])
+        profiles = {p.id: p for p in self.engine.profiles}
+        for suggestion in empty["guidance"]["suggested_dates"]:
+            retried = self.engine.recommend({**req, "event_date": suggestion["date"]})
+            self.assertEqual(retried["eligible_count"], suggestion["eligible_count"])
+            for card in retried["recommendations"]:
+                profile = profiles[card["id"]]
+                self.assertNotIn(suggestion["date"], profile.busy_dates)
+                self.assertLessEqual(profile.price_from_kzt, req["budget_kzt"])
+                self.assertIn(req["event_format"], profile.event_formats)
+
     def test_never_recommends_busy_contractor(self):
         result = self.engine.recommend(self.request())
         profiles = {p.id: p for p in self.engine.profiles}

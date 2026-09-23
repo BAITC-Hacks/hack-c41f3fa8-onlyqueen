@@ -4,60 +4,138 @@ const errorBox = document.querySelector('#error');
 const template = document.querySelector('#card-template');
 let meta;
 
-const fill = (name, values) => {
-  const select = form.elements[name];
-  values.forEach(value => select.add(new Option(value, value)));
-};
+const money = value => new Intl.NumberFormat('ru-RU').format(value);
+const prettyDate = value => new Intl.DateTimeFormat('ru-RU', {day: 'numeric', month: 'long'}).format(new Date(`${value}T12:00:00`));
 
-fetch('/api/meta').then(r => r.json()).then(data => {
+function fill(name, values) {
+  form.elements[name].replaceChildren(...values.map(value => new Option(value, value)));
+}
+
+function renderCategories(city) {
+  const select = form.elements.category;
+  const previous = select.value;
+  const available = new Set(meta.categories_by_city[city] || []);
+  const present = document.createElement('optgroup');
+  present.label = `Есть в городе (${available.size})`;
+  const elsewhere = document.createElement('optgroup');
+  elsewhere.label = 'Есть в других городах';
+  meta.categories.forEach(category => {
+    const option = new Option(category, category);
+    (available.has(category) ? present : elsewhere).appendChild(option);
+  });
+  select.replaceChildren(present, elsewhere);
+  if (meta.categories.includes(previous)) select.value = previous;
+}
+
+fetch('/api/meta').then(response => response.json()).then(data => {
   meta = data;
   fill('city', data.cities);
   fill('event_format', data.formats);
-  fill('category', data.categories);
-  fill('language', data.languages);
+  fill('language', ['', ...data.languages]);
+  form.elements.language.options[0].textContent = 'Любой';
+  form.elements.city.value = data.default_city;
+  renderCategories(data.default_city);
   for (const name of ['event_date', 'compare_date']) {
     form.elements[name].min = data.date_min;
     form.elements[name].max = data.date_max;
   }
   form.elements.event_date.value = data.date_min;
-  document.querySelector('#range-note').textContent = `Доступный диапазон данных: ${data.date_min} — ${data.date_max}.`;
+  document.querySelector('#range-note').textContent = `Даты в наборе: ${data.date_min} — ${data.date_max}`;
 });
 
-const money = value => new Intl.NumberFormat('ru-RU').format(value);
+form.elements.city.addEventListener('change', event => renderCategories(event.target.value));
+document.querySelectorAll('[data-budget]').forEach(button => button.addEventListener('click', () => {
+  form.elements.budget_kzt.value = button.dataset.budget;
+  form.elements.budget_kzt.focus();
+}));
 
 function rejectionText(item) {
   const r = item.rejections;
-  return `Исходно в городе и категории: ${item.base_count}. Не прошли: заняты — ${r.busy}, формат — ${r.format}, бюджет — ${r.budget}, язык — ${r.language}, длительность — ${r.duration}. Причины могут пересекаться.`;
+  return `Профилей в городе и категории: ${item.base_count}. Исключены по причинам: заняты — ${r.busy}, формат — ${r.format}, бюджет — ${r.budget}, язык — ${r.language}, длительность — ${r.duration}. Один профиль может учитываться в нескольких причинах.`;
+}
+
+function addActionControls(container, item) {
+  const guidance = item.guidance;
+  if (!guidance || item.outcome === 'found') return;
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  if (guidance.lowest_price_kzt !== null) {
+    const info = document.createElement('p');
+    info.innerHTML = `Минимальная цена в этой категории и городе — <strong>от ${money(guidance.lowest_price_kzt)} ₸</strong>.`;
+    actions.appendChild(info);
+    if (Number(item.request.budget_kzt) < guidance.lowest_price_kzt) {
+      const budgetButton = document.createElement('button');
+      budgetButton.type = 'button';
+      budgetButton.className = 'secondary';
+      budgetButton.textContent = `Поставить бюджет ${money(guidance.lowest_price_kzt)} ₸`;
+      budgetButton.addEventListener('click', () => {
+        form.elements.budget_kzt.value = guidance.lowest_price_kzt;
+        form.requestSubmit();
+      });
+      actions.appendChild(budgetButton);
+    }
+  }
+  if (guidance.suggested_dates.length) {
+    const group = document.createElement('div');
+    group.className = 'date-actions';
+    const label = document.createElement('span');
+    label.textContent = 'Попробовать дату:';
+    group.appendChild(label);
+    guidance.suggested_dates.forEach(suggestion => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.textContent = `${prettyDate(suggestion.date)} · ${suggestion.eligible_count}`;
+      button.addEventListener('click', () => {
+        form.elements.event_date.value = suggestion.date;
+        form.requestSubmit();
+      });
+      group.appendChild(button);
+    });
+    actions.appendChild(group);
+  }
+  if (actions.children.length) container.appendChild(actions);
+}
+
+function renderCard(rec) {
+  const card = template.content.cloneNode(true);
+  card.querySelector('h3').textContent = rec.name;
+  card.querySelector('.category').textContent = rec.matching_category;
+  card.querySelector('.city').textContent = rec.city;
+  card.querySelector('.card-price').textContent = `от ${money(rec.price_from_kzt)} ₸`;
+  card.querySelector('.score').textContent = `${rec.relevance_score} баллов релевантности`;
+  card.querySelector('.explanation').textContent = rec.explanation;
+  const evidence = card.querySelector('.evidence-list');
+  rec.score_reasons.forEach(reason => {
+    const block = document.createElement('blockquote');
+    block.innerHTML = `<strong>${reason.label} · +${reason.points}</strong><span></span>`;
+    block.querySelector('span').textContent = `«${reason.source_fragment}»`;
+    evidence.appendChild(block);
+  });
+  const badges = card.querySelector('.badges');
+  [rec.synthetic && 'Синтетический', rec.city_imputed && 'Город восстановлен', rec.price_imputed && 'Цена восстановлена']
+    .filter(Boolean).forEach(label => {
+      const badge = document.createElement('span'); badge.textContent = label; badges.appendChild(badge);
+    });
+  return card;
 }
 
 function renderSet(item, heading) {
   const section = document.createElement('section');
-  section.className = 'result-set';
-  section.innerHTML = `<p class="eyebrow">${heading}</p><h2>${item.summary}</h2><p class="counts">${rejectionText(item)}</p>`;
-  const grid = document.createElement('div');
-  grid.className = 'cards';
-  item.recommendations.forEach(rec => {
-    const card = template.content.cloneNode(true);
-    card.querySelector('h3').textContent = rec.name;
-    card.querySelector('.category').textContent = rec.matching_category;
-    card.querySelector('.city').textContent = rec.city;
-    card.querySelector('.price').textContent = `от ${money(rec.price_from_kzt)} ₸`;
-    card.querySelector('.score').textContent = `${rec.relevance_score} баллов`;
-    card.querySelector('.explanation').textContent = rec.explanation;
-    const badges = card.querySelector('.badges');
-    const labels = [
-      rec.synthetic && 'Синтетический профиль',
-      rec.city_imputed && 'Город восстановлен',
-      rec.price_imputed && 'Цена восстановлена',
-    ].filter(Boolean);
-    labels.forEach(label => {
-      const badge = document.createElement('span');
-      badge.textContent = label;
-      badges.appendChild(badge);
-    });
-    grid.appendChild(card);
-  });
-  section.appendChild(grid);
+  section.className = `result-set ${item.outcome}`;
+  const title = item.outcome === 'found' ? item.summary : item.outcome === 'no_city_category' ? 'В этой категории пока нет профилей' : 'Подходящих вариантов пока нет';
+  section.innerHTML = `<div class="result-heading"><div><p class="eyebrow">${heading}</p><h2>${title}</h2><p class="plain-reason"></p></div></div>`;
+  section.querySelector('.plain-reason').textContent = item.guidance.plain_reason;
+  addActionControls(section, item);
+  const details = document.createElement('details');
+  details.className = 'why';
+  details.innerHTML = `<summary>Почему такой результат?</summary><p>${rejectionText(item)}</p>`;
+  section.appendChild(details);
+  if (item.recommendations.length) {
+    const grid = document.createElement('div'); grid.className = 'cards';
+    item.recommendations.forEach(rec => grid.appendChild(renderCard(rec)));
+    section.appendChild(grid);
+  }
   return section;
 }
 
@@ -66,28 +144,20 @@ form.addEventListener('submit', async event => {
   errorBox.hidden = true;
   results.innerHTML = '<p class="loading">Проверяем условия и календари…</p>';
   const payload = Object.fromEntries(new FormData(form));
-  if (!payload.duration_hours) delete payload.duration_hours;
-  if (!payload.language) delete payload.language;
-  if (!payload.compare_date) delete payload.compare_date;
-  if (!payload.wishes) delete payload.wishes;
+  ['duration_hours', 'language', 'compare_date', 'wishes'].forEach(key => { if (!payload[key]) delete payload[key]; });
   try {
-    const response = await fetch('/api/recommend', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
-    });
+    const response = await fetch('/api/recommend', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Не удалось получить рекомендации');
     results.innerHTML = '';
-    results.appendChild(renderSet(data.primary, `Результат на ${data.primary.request.event_date}`));
+    results.appendChild(renderSet(data.primary, `Результат на ${prettyDate(data.primary.request.event_date)}`));
     if (data.comparison) {
-      const change = document.createElement('aside');
-      change.className = 'change';
+      const change = document.createElement('aside'); change.className = 'change';
       change.innerHTML = `<strong>Что изменила дата</strong><p>${data.availability_changes.text}</p>`;
       results.appendChild(change);
-      results.appendChild(renderSet(data.comparison, `Сравнение на ${data.comparison.request.event_date}`));
+      results.appendChild(renderSet(data.comparison, `Сравнение на ${prettyDate(data.comparison.request.event_date)}`));
     }
   } catch (error) {
-    results.innerHTML = '';
-    errorBox.textContent = error.message;
-    errorBox.hidden = false;
+    results.innerHTML = ''; errorBox.textContent = error.message; errorBox.hidden = false;
   }
 });

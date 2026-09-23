@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +89,7 @@ class Recommender:
         self.date_min, self.date_max = all_dates[0], all_dates[-1]
 
     def metadata(self) -> dict[str, Any]:
+        city_counts = {city: sum(p.city == city for p in self.profiles) for city in {p.city for p in self.profiles}}
         return {
             "profile_count": len(self.profiles),
             "cities": sorted({p.city for p in self.profiles}),
@@ -97,6 +98,12 @@ class Recommender:
             "languages": sorted({x for p in self.profiles for x in p.languages}),
             "date_min": self.date_min,
             "date_max": self.date_max,
+            "city_counts": city_counts,
+            "default_city": max(city_counts, key=lambda city: (city_counts[city], city)),
+            "categories_by_city": {
+                city: sorted({category for p in self.profiles if p.city == city for category in p.categories})
+                for city in city_counts
+            },
         }
 
     def _validate(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -318,6 +325,7 @@ class Recommender:
             summary = f"Найдено рекомендаций: {count}."
             if count < 3:
                 summary += f" Меньше трёх, потому что всем условиям соответствуют только {len(eligible)}."
+        guidance = self._guidance(req, base, eligible, failures)
         return {
             "outcome": outcome,
             "summary": summary,
@@ -326,7 +334,77 @@ class Recommender:
             "rejections": failures,
             "recommendations": cards,
             "request": req,
+            "guidance": guidance,
         }
+
+    def _guidance(
+        self, req: dict[str, Any], base: list[Profile], eligible: list[Profile], failures: dict[str, int],
+    ) -> dict[str, Any]:
+        if not base:
+            return {
+                "plain_reason": (
+                    f"В городе {req['city']} пока нет профилей категории «{req['category']}». "
+                    "Категория остаётся доступной для выбора в других городах."
+                ),
+                "lowest_price_kzt": None,
+                "suggested_dates": [],
+            }
+        lowest_price = min(p.price_from_kzt for p in base)
+        if eligible:
+            plain_reason = "Все показанные профили прошли обязательные условия."
+        elif failures["budget"] == len(base):
+            plain_reason = (
+                f"Ни один из {len(base)} профилей этой категории не укладывается в указанный бюджет. "
+                f"Самая низкая цена начинается от {lowest_price:,} ₸."
+            ).replace(",", " ")
+        elif failures["busy"] == len(base):
+            plain_reason = f"Ни один из {len(base)} профилей этой категории не свободен в выбранную дату."
+        else:
+            labels = {
+                "busy": "занятость в эту дату",
+                "format": "неподходящий формат",
+                "budget": "бюджет",
+                "language": "язык",
+                "duration": "длительность",
+            }
+            dominant = max(failures, key=lambda key: (failures[key], key))
+            plain_reason = (
+                f"Главное ограничение — {labels[dominant]}: по этой причине не проходят "
+                f"{failures[dominant]} из {len(base)} профилей. Причины могут пересекаться."
+            )
+        return {
+            "plain_reason": plain_reason,
+            "lowest_price_kzt": lowest_price,
+            "suggested_dates": self._suggest_dates(req, base) if not eligible else [],
+        }
+
+    def _suggest_dates(self, req: dict[str, Any], base: list[Profile]) -> list[dict[str, Any]]:
+        current = date.fromisoformat(req["event_date"])
+        lower, upper = date.fromisoformat(self.date_min), date.fromisoformat(self.date_max)
+        suggestions = []
+        max_offset = max((current - lower).days, (upper - current).days)
+        for offset in range(1, max_offset + 1):
+            for candidate_date in (current + timedelta(days=offset), current - timedelta(days=offset)):
+                if not lower <= candidate_date <= upper:
+                    continue
+                value = candidate_date.isoformat()
+                count = sum(
+                    value not in p.busy_dates
+                    and req["event_format"] in p.event_formats
+                    and p.price_from_kzt <= req["budget_kzt"]
+                    and (not req["language"] or req["language"] in p.languages)
+                    and (
+                        req["duration_hours"] is None
+                        or p.max_hours is None
+                        or req["duration_hours"] <= p.max_hours
+                    )
+                    for p in base
+                )
+                if count:
+                    suggestions.append({"date": value, "eligible_count": count})
+                    if len(suggestions) == 3:
+                        return suggestions
+        return suggestions
 
     def compare(self, request: dict[str, Any], comparison_date: str) -> dict[str, Any]:
         first = self.recommend(request)
