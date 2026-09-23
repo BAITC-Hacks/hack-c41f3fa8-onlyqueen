@@ -177,6 +177,10 @@ function renderSet(item, heading) {
 }
 
 function renderAI(analysis) {
+  analysis ||= {
+    available: false,
+    message: 'AI-анализ недоступен: сервер запущен без AI-модуля. Локальный результат выше остаётся действительным.'
+  };
   const section = document.createElement('section');
   section.className = `ai-analysis ${analysis.available ? 'available' : 'unavailable'}`;
   const badge = analysis.available ? 'Проверено' : 'Недоступен';
