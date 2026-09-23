@@ -20,7 +20,7 @@
         <fieldset class="budget-field"><legend>Бюджет, ₸</legend><div class="budget-row"><input name="budget_kzt" type="number" min="0" step="1000" value="1000000" required><div class="presets" aria-label="Быстрый выбор бюджета"><button type="button" data-budget="300000">300 тыс.</button><button type="button" data-budget="500000">500 тыс.</button><button type="button" data-budget="1000000">1 млн</button><button type="button" data-budget="3000000">3 млн</button></div></div></fieldset>
       </div>
       <details class="extras">
-        <summary>Дополнительные пожелания <span>язык, длительность, текст и сравнение дат</span></summary>
+        <summary>Дополнительные параметры <span>язык, длительность, пожелания и сравнение дат</span></summary>
         <div class="extra-fields">
           <label>Язык<select name="language"><option value="">Любой</option></select></label>
           <label>Длительность, ч<input name="duration_hours" type="number" min="0.5" step="0.5" placeholder="Например, 4"></label>
@@ -32,7 +32,7 @@
     </form>
     <section id="error" class="error" hidden></section><section id="results" aria-live="polite"></section>
   </main>
-  <template id="card-template"><article class="card"><div class="card-top"><div><p class="category"></p><h3></h3></div><div class="badges"></div></div><p class="card-price"></p><div class="card-meta"><span class="city"></span><span class="score"></span></div><p class="explanation"></p><div class="evidence-list"></div></article></template>
+  <template id="card-template"><article class="card"><div class="card-top"><div><p class="category"></p><h3></h3></div><div class="badges"></div></div><p class="card-price"></p><div class="card-meta"><span class="city"></span><span class="score"></span></div><p class="explanation"></p><div class="score-details"></div></article></template>
   <script src="/app.js"></script>
 </body>
 </html>

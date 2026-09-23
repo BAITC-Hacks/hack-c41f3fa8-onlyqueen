@@ -63,13 +63,13 @@ function addActionControls(container, item) {
     const info = document.createElement('p');
     info.innerHTML = `Минимальная цена в этой категории и городе — <strong>от ${money(guidance.lowest_price_kzt)} ₸</strong>.`;
     actions.appendChild(info);
-    if (Number(item.request.budget_kzt) < guidance.lowest_price_kzt) {
+    if (guidance.suggested_budget_kzt !== null && Number(item.request.budget_kzt) < guidance.suggested_budget_kzt) {
       const budgetButton = document.createElement('button');
       budgetButton.type = 'button';
       budgetButton.className = 'secondary';
-      budgetButton.textContent = `Поставить бюджет ${money(guidance.lowest_price_kzt)} ₸`;
+      budgetButton.textContent = `Поставить бюджет ${money(guidance.suggested_budget_kzt)} ₸`;
       budgetButton.addEventListener('click', () => {
-        form.elements.budget_kzt.value = guidance.lowest_price_kzt;
+        form.elements.budget_kzt.value = guidance.suggested_budget_kzt;
         form.requestSubmit();
       });
       actions.appendChild(budgetButton);
@@ -94,6 +94,17 @@ function addActionControls(container, item) {
     });
     actions.appendChild(group);
   }
+  guidance.removable_constraints.forEach(suggestion => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary';
+    button.textContent = `${suggestion.label} · ${suggestion.eligible_count}`;
+    button.addEventListener('click', () => {
+      form.elements[suggestion.key].value = '';
+      form.requestSubmit();
+    });
+    actions.appendChild(button);
+  });
   if (actions.children.length) container.appendChild(actions);
 }
 
@@ -103,15 +114,28 @@ function renderCard(rec) {
   card.querySelector('.category').textContent = rec.matching_category;
   card.querySelector('.city').textContent = rec.city;
   card.querySelector('.card-price').textContent = `от ${money(rec.price_from_kzt)} ₸`;
-  card.querySelector('.score').textContent = `${rec.relevance_score} баллов релевантности`;
+  card.querySelector('.score').textContent = `${rec.relevance_score} из 100`;
   card.querySelector('.explanation').textContent = rec.explanation;
-  const evidence = card.querySelector('.evidence-list');
-  rec.score_reasons.forEach(reason => {
-    const block = document.createElement('blockquote');
-    block.innerHTML = `<strong>${reason.label} · +${reason.points}</strong><span></span>`;
-    block.querySelector('span').textContent = `«${reason.source_fragment}»`;
-    evidence.appendChild(block);
+  const detailHost = card.querySelector('.score-details');
+  const detail = document.createElement('details');
+  detail.innerHTML = `<summary>Как рассчитаны ${rec.relevance_score} из 100?</summary><div class="breakdown"></div>`;
+  const breakdown = detail.querySelector('.breakdown');
+  rec.score_breakdown.forEach(component => {
+    const row = document.createElement('div');
+    row.className = 'breakdown-row';
+    row.innerHTML = `<div><strong>${component.kind === 'wishes_description' ? 'Пожелания' : component.kind === 'format_description' ? 'Формат' : component.kind === 'language' ? 'Язык' : 'Длительность'}</strong><span>${component.label}</span></div><b>+${component.points}</b>`;
+    if (component.source_fragment) {
+      const quote = document.createElement('blockquote');
+      quote.textContent = `«${component.source_fragment}»`;
+      row.appendChild(quote);
+    }
+    breakdown.appendChild(row);
   });
+  const note = document.createElement('p');
+  note.className = 'score-note';
+  note.textContent = 'Это оценка релевантности, а не вероятность. Цена и ID используются только при равенстве баллов.';
+  breakdown.appendChild(note);
+  detailHost.appendChild(detail);
   const badges = card.querySelector('.badges');
   [rec.synthetic && 'Синтетический', rec.city_imputed && 'Город восстановлен', rec.price_imputed && 'Цена восстановлена']
     .filter(Boolean).forEach(label => {

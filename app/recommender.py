@@ -193,20 +193,31 @@ class Recommender:
         return max(candidates)[2]
 
     @classmethod
-    def _score(cls, profile: Profile, req: dict[str, Any]) -> tuple[int, list[dict[str, Any]]]:
+    def _score(
+        cls, profile: Profile, req: dict[str, Any],
+    ) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
         score = 0
         reasons: list[dict[str, Any]] = []
+        breakdown: list[dict[str, Any]] = []
 
         format_concepts = FORMAT_CONCEPTS.get(
             req["event_format"], cls._concepts(req["event_format"])
         )
         format_source = cls._source_for_concepts(profile, format_concepts)
         if format_source:
-            score += 30
-            reasons.append({
-                "kind": "format_description", "points": 30,
+            score += 25
+            component = {
+                "kind": "format_description", "points": 25,
                 "label": f"описание подтверждает формат «{req['event_format']}»",
                 "source_fragment": format_source,
+            }
+            reasons.append(component)
+            breakdown.append(component)
+        else:
+            breakdown.append({
+                "kind": "format_description", "points": 0,
+                "label": "в описании нет отдельного подтверждения формата",
+                "source_fragment": None,
             })
 
         if req["wishes"]:
@@ -216,31 +227,73 @@ class Recommender:
                 wish_source = cls._source_for_concepts(profile, wish_concepts)
                 if wish_source:
                     exact = cls._normalize(req["wishes"]) in cls._normalize(profile.description)
-                    points = 60 if exact else 45
+                    points = 50 if exact else 35
                     score += points
-                    reasons.append({
+                    component = {
                         "kind": "wishes_description", "points": points,
                         "label": "описание соответствует пожеланиям",
                         "source_fragment": wish_source,
+                    }
+                    reasons.append(component)
+                    breakdown.append(component)
+                else:
+                    breakdown.append({
+                        "kind": "wishes_description", "points": 0,
+                        "label": "пожелания не подтверждены одним точным фрагментом",
+                        "source_fragment": None,
                     })
+            else:
+                breakdown.append({
+                    "kind": "wishes_description", "points": 0,
+                    "label": "в пожелании нет значимых слов после нормализации",
+                    "source_fragment": None,
+                })
+        else:
+            breakdown.append({
+                "kind": "wishes_description", "points": 0,
+                "label": "пожелания не заданы — штрафа нет",
+                "source_fragment": None,
+            })
 
         if req["language"]:
             score += 10
-            reasons.append({
+            component = {
                 "kind": "language", "points": 10,
                 "label": f"запрошенный язык «{req['language']}» указан в languages",
                 "source_fragment": f"languages: {' | '.join(profile.languages)}",
+            }
+            reasons.append(component)
+            breakdown.append(component)
+        else:
+            breakdown.append({
+                "kind": "language", "points": 0,
+                "label": "язык не выбран — штрафа нет",
+                "source_fragment": None,
             })
         if req["duration_hours"] is not None and profile.max_hours is not None:
             headroom = min(5, max(0, int(profile.max_hours - req["duration_hours"])))
             points = 10 + headroom
             score += points
-            reasons.append({
+            component = {
                 "kind": "duration", "points": points,
                 "label": "указанный лимит покрывает длительность",
                 "source_fragment": f"max_hours: {profile.max_hours:g}",
+            }
+            reasons.append(component)
+            breakdown.append(component)
+        elif req["duration_hours"] is not None:
+            breakdown.append({
+                "kind": "duration", "points": 0,
+                "label": "max_hours пуст — ограничение неприменимо, бонус не начислен",
+                "source_fragment": None,
             })
-        return score, reasons
+        else:
+            breakdown.append({
+                "kind": "duration", "points": 0,
+                "label": "длительность не задана — штрафа нет",
+                "source_fragment": None,
+            })
+        return min(100, score), reasons, breakdown
 
     @staticmethod
     def _structured_evidence(profile: Profile, req: dict[str, Any]) -> str:
@@ -252,25 +305,21 @@ class Recommender:
 
     @classmethod
     def _reason(
-        cls, profile: Profile, req: dict[str, Any], score: int, reasons: list[dict[str, Any]],
+        cls, profile: Profile, req: dict[str, Any], reasons: list[dict[str, Any]],
     ) -> str:
         price = f"{profile.price_from_kzt:,}".replace(",", " ")
         first = (
             f"Профиль «{profile.anon_name}» свободен {req['event_date']}, работает в городе "
             f"{profile.city} и принимает формат «{req['event_format']}» по категории "
-            f"«{req['category']}»; цена от {price} ₸ укладывается в бюджет, релевантность — {score}."
+            f"«{req['category']}»; цена от {price} ₸ укладывается в бюджет."
         )
-        if reasons:
-            details = "; ".join(
-                f"{reason['label']} (+{reason['points']}): «{reason['source_fragment']}»"
-                for reason in reasons
-            )
-            second = f"На баллы повлияли: {details}."
+        description_reason = next(
+            (reason for reason in reasons if reason["kind"].endswith("description")), None
+        )
+        if description_reason:
+            second = f"Подтверждение из описания: «{description_reason['source_fragment']}»."
         else:
-            second = (
-                "Описание не дало подтверждённого совпадения; рекомендацию обосновывают "
-                + cls._structured_evidence(profile, req) + "."
-            )
+            second = "Отличающие данные профиля: " + cls._structured_evidence(profile, req) + "."
         return first + " " + second
 
     def recommend(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -299,7 +348,7 @@ class Recommender:
         scored = [(p, *self._score(p, req)) for p in eligible]
         scored.sort(key=lambda item: (-item[1], item[0].price_from_kzt, item[0].id))
         cards = []
-        for p, score, score_reasons in scored[:3]:
+        for p, score, score_reasons, score_breakdown in scored[:3]:
             cards.append({
                 "id": p.id,
                 "name": p.anon_name,
@@ -311,7 +360,8 @@ class Recommender:
                 "price_imputed": p.price_imputed,
                 "relevance_score": score,
                 "score_reasons": score_reasons,
-                "explanation": self._reason(p, req, score, score_reasons),
+                "score_breakdown": score_breakdown,
+                "explanation": self._reason(p, req, score_reasons),
             })
         if not base:
             outcome = "no_city_category"
@@ -347,9 +397,19 @@ class Recommender:
                     "Категория остаётся доступной для выбора в других городах."
                 ),
                 "lowest_price_kzt": None,
+                "suggested_budget_kzt": None,
                 "suggested_dates": [],
+                "removable_constraints": [],
             }
         lowest_price = min(p.price_from_kzt for p in base)
+        budget_candidates = [
+            p for p in base
+            if req["event_date"] not in p.busy_dates
+            and req["event_format"] in p.event_formats
+            and (not req["language"] or req["language"] in p.languages)
+            and (req["duration_hours"] is None or p.max_hours is None or req["duration_hours"] <= p.max_hours)
+        ]
+        suggested_budget = min((p.price_from_kzt for p in budget_candidates), default=None)
         if eligible:
             plain_reason = "Все показанные профили прошли обязательные условия."
         elif failures["budget"] == len(base):
@@ -375,8 +435,42 @@ class Recommender:
         return {
             "plain_reason": plain_reason,
             "lowest_price_kzt": lowest_price,
+            "suggested_budget_kzt": suggested_budget,
             "suggested_dates": self._suggest_dates(req, base) if not eligible else [],
+            "removable_constraints": self._removable_constraints(req, base) if not eligible else [],
         }
+
+    @staticmethod
+    def _removable_constraints(req: dict[str, Any], base: list[Profile]) -> list[dict[str, Any]]:
+        suggestions = []
+        if req["language"]:
+            count = sum(
+                req["event_date"] not in p.busy_dates
+                and req["event_format"] in p.event_formats
+                and p.price_from_kzt <= req["budget_kzt"]
+                and (req["duration_hours"] is None or p.max_hours is None or req["duration_hours"] <= p.max_hours)
+                for p in base
+            )
+            if count:
+                suggestions.append({
+                    "key": "language", "label": f"Убрать язык «{req['language']}»",
+                    "eligible_count": count,
+                })
+        if req["duration_hours"] is not None:
+            count = sum(
+                req["event_date"] not in p.busy_dates
+                and req["event_format"] in p.event_formats
+                and p.price_from_kzt <= req["budget_kzt"]
+                and (not req["language"] or req["language"] in p.languages)
+                for p in base
+            )
+            if count:
+                suggestions.append({
+                    "key": "duration_hours",
+                    "label": f"Убрать длительность {req['duration_hours']:g} ч",
+                    "eligible_count": count,
+                })
+        return suggestions
 
     def _suggest_dates(self, req: dict[str, Any], base: list[Profile]) -> list[dict[str, Any]]:
         current = date.fromisoformat(req["event_date"])

@@ -1,5 +1,6 @@
 import unittest
 import re
+import time
 
 from app.recommender import Recommender
 
@@ -51,7 +52,7 @@ class RecommenderChecks(unittest.TestCase):
             normalized.append(without_identity_or_price)
         self.assertEqual(len(normalized), len(set(normalized)))
         by_name = {card["name"]: card for card in first["recommendations"]}
-        self.assertEqual(by_name["Куррапика"]["relevance_score"], 30)
+        self.assertEqual(by_name["Куррапика"]["relevance_score"], 25)
         self.assertIn("деловых встреч", by_name["Куррапика"]["explanation"])
         self.assertIn("languages: русский", by_name["Мицури Канроджи"]["explanation"])
         self.assertIn("казахский | русский | английский", by_name["Кики"]["explanation"])
@@ -68,6 +69,18 @@ class RecommenderChecks(unittest.TestCase):
         wish_reason = next(r for r in first["score_reasons"] if r["kind"] == "wishes_description")
         self.assertIn("бизнес форумы на 3000 человек", wish_reason["source_fragment"])
 
+    def test_scores_are_individual_zero_to_one_hundred_without_blank_penalties(self):
+        result = self.engine.recommend(self.request(event_date="2026-11-15"))
+        for card in result["recommendations"]:
+            self.assertGreaterEqual(card["relevance_score"], 0)
+            self.assertLessEqual(card["relevance_score"], 100)
+            components = {item["kind"]: item for item in card["score_breakdown"]}
+            self.assertEqual(components["language"]["points"], 0)
+            self.assertIn("штрафа нет", components["language"]["label"])
+            self.assertEqual(components["duration"]["points"], 0)
+            self.assertIn("штрафа нет", components["duration"]["label"])
+            self.assertEqual(components["wishes_description"]["points"], 0)
+
     def test_wishes_never_override_busy_date(self):
         result = self.engine.recommend(self.request(
             event_date="2026-09-23", wishes="ведущий для делового форума"
@@ -83,7 +96,8 @@ class RecommenderChecks(unittest.TestCase):
         empty = self.engine.recommend(req)
         self.assertEqual(empty["outcome"], "none_eligible")
         self.assertEqual(empty["rejections"]["budget"], empty["base_count"])
-        suggested_budget = empty["guidance"]["lowest_price_kzt"]
+        self.assertEqual(empty["guidance"]["lowest_price_kzt"], 2_000_000)
+        suggested_budget = empty["guidance"]["suggested_budget_kzt"]
         self.assertEqual(suggested_budget, 2_000_000)
 
         retried = self.engine.recommend({**req, "budget_kzt": suggested_budget})
@@ -112,6 +126,31 @@ class RecommenderChecks(unittest.TestCase):
                 self.assertNotIn(suggestion["date"], profile.busy_dates)
                 self.assertLessEqual(profile.price_from_kzt, req["budget_kzt"])
                 self.assertIn(req["event_format"], profile.event_formats)
+
+    def test_optional_constraint_removal_is_a_query_change_not_a_bypass(self):
+        req = self.request(
+            event_format="день рождения", category="Банкетный зал", language="казахский"
+        )
+        empty = self.engine.recommend(req)
+        suggestion = next(
+            item for item in empty["guidance"]["removable_constraints"]
+            if item["key"] == "language"
+        )
+        self.assertEqual(empty["outcome"], "none_eligible")
+        retried = self.engine.recommend({key: value for key, value in req.items() if key != "language"})
+        self.assertEqual(retried["eligible_count"], suggestion["eligible_count"])
+        profiles = {p.id: p for p in self.engine.profiles}
+        for card in retried["recommendations"]:
+            profile = profiles[card["id"]]
+            self.assertNotIn(req["event_date"], profile.busy_dates)
+            self.assertIn(req["event_format"], profile.event_formats)
+            self.assertLessEqual(profile.price_from_kzt, req["budget_kzt"])
+
+    def test_dense_query_completes_under_ten_seconds(self):
+        started = time.perf_counter()
+        result = self.engine.recommend(self.request(event_date="2026-11-15"))
+        self.assertEqual(len(result["recommendations"]), 3)
+        self.assertLess(time.perf_counter() - started, 10)
 
     def test_never_recommends_busy_contractor(self):
         result = self.engine.recommend(self.request())
